@@ -6,6 +6,7 @@
 # streamlit run app.py
 # =============================================================================
 
+import html
 import io
 import logging
 import random
@@ -892,21 +893,16 @@ def render_results(inputs):
     </p>
     """, unsafe_allow_html=True)
 
-    # ── AI Summary (featherless.ai) ────────────────────────────────
-    # Read the key directly from secrets every run — no sidebar dependency
-    api_key = ""
-    try:
-        api_key = st.secrets["featherless"]["api_key"]
-    except Exception:
-        pass
-    # Also allow sidebar override (set by user if they want to swap keys)
-    api_key = st.session_state.get("featherless_key", api_key) or api_key
+    # ── AI Summary (any OpenAI-compatible provider, see llm_summary.py) ──
+    from llm_summary import generate_summary, load_llm_config
+    llm_config = load_llm_config(st.secrets)
 
-    if api_key:
+    if llm_config and not is_dummy:
         with st.spinner("🤖 Generating AI summary…"):
-            from llm_summary import generate_summary
-            summary, err = generate_summary(records, inputs, district, state, api_key)
+            summary, err = generate_summary(records, inputs, district, state, llm_config)
         if summary:
+            # LLM output is untrusted text: escape it before putting it in HTML
+            summary = html.escape(summary)
             st.markdown(f"""
             <div style="background:#EDF7EE;border-left:5px solid {GREEN_MID};
                         border-radius:6px;padding:20px 26px;margin-top:16px;
@@ -921,8 +917,8 @@ def render_results(inputs):
         else:
             log.error("AI summary failed: %s", err)
             st.warning("⚠️ AI summary is unavailable right now.")
-    else:
-        st.info("💬 AI Market Advisory unavailable — no API key found in secrets.toml.")
+    elif not llm_config:
+        log.info("AI advisory skipped: no [llm] section with base_url, model and api_key in secrets")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -944,25 +940,6 @@ def render_footer():
 # =============================================================================
 def main():
     inject_css()
-
-    # ── Featherless.ai sidebar status + optional key override ──────────
-    secrets_key = ""
-    try:
-        secrets_key = st.secrets["featherless"]["api_key"]
-    except Exception:
-        pass
-    with st.sidebar:
-        st.markdown("### 🤖 AI Summary")
-        if secrets_key:
-            st.success("API key loaded from secrets ✓")
-        override = st.text_input(
-            "Override API Key (optional)",
-            type="password",
-            help="Leave blank to use the key from .streamlit/secrets.toml",
-            key="_fl_key_input",
-        )
-        st.session_state["featherless_key"] = override.strip() if override.strip() else ""
-
     render_navbar()
     render_hero()
     render_features_section()
