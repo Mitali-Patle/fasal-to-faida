@@ -17,6 +17,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
+import geo
+
 log = logging.getLogger("fasal.web")
 
 st.set_page_config(
@@ -43,80 +45,7 @@ BORDER      = "#E0DAD0"
 MONTHS = ["January","February","March","April","May","June",
           "July","August","September","October","November","December"]
 CROPS  = ["Tomato","Onion","Potato","Wheat","Rice"]
-
-INDIAN_STATES = [
-    "Andhra Pradesh","Arunachal Pradesh","Assam","Bihar","Chhattisgarh",
-    "Goa","Gujarat","Haryana","Himachal Pradesh","Jharkhand","Karnataka",
-    "Kerala","Madhya Pradesh","Maharashtra","Manipur","Meghalaya","Mizoram",
-    "Nagaland","Odisha","Punjab","Rajasthan","Sikkim","Tamil Nadu","Telangana",
-    "Tripura","Uttar Pradesh","Uttarakhand","West Bengal",
-    "Delhi","Jammu & Kashmir","Ladakh","Puducherry",
-]
-
-@st.cache_data(show_spinner=False)
-def load_state_districts():
-    """Build state→[districts] mapping from the pincode CSV."""
-    import os
-    csv_path = os.path.join(os.path.dirname(__file__), "datasets", "india pincode final.csv")
-    try:
-        df = pd.read_csv(csv_path, usecols=["Districtname", "statename"], dtype=str)
-        df = df.dropna(subset=["Districtname", "statename"])
-        # CSV state names are ALL CAPS — title-case them for matching
-        df["state_tc"] = df["statename"].str.strip().str.title()
-        # Special corrections (title-case mangles some names)
-        corrections = {
-            "Jammu & Kashmir": "Jammu & Kashmir",
-            "Andaman & Nicobar Islands": "Andaman & Nicobar Islands",
-            "Dadra & Nagar Haveli And Daman & Diu": "Dadra & Nagar Haveli and Daman & Diu",
-        }
-        for wrong, right in corrections.items():
-            df.loc[df["state_tc"] == wrong, "state_tc"] = right
-        mapping = (
-            df.groupby("state_tc")["Districtname"]
-            .apply(lambda s: sorted(s.str.strip().unique().tolist()))
-            .to_dict()
-        )
-        return mapping
-    except Exception:
-        return {}
-
-STATE_DISTRICTS = load_state_districts()
-
-# — keep a fallback so the app never breaks even if CSV is missing —
-_FALLBACK_DISTRICTS = {
-    "Andhra Pradesh": ["Anantapur","Chittoor","East Godavari","Guntur","Krishna","Kurnool","Nellore","Prakasam","Srikakulam","Visakhapatnam","Vizianagaram","West Godavari","YSR Kadapa"],
-    "Arunachal Pradesh": ["Anjaw","Changlang","East Kameng","East Siang","Kurung Kumey","Lohit","Longding","Lower Dibang Valley","Lower Subansiri","Namsai","Papum Pare","Tawang","Tirap","Upper Dibang Valley","Upper Siang","Upper Subansiri","West Kameng","West Siang"],
-    "Assam": ["Baksa","Barpeta","Biswanath","Bongaigaon","Cachar","Charaideo","Chirang","Darrang","Dhemaji","Dhubri","Dibrugarh","Dima Hasao","Goalpara","Golaghat","Hailakandi","Hojai","Jorhat","Kamrup","Kamrup Metropolitan","Karbi Anglong","Karimganj","Kokrajhar","Lakhimpur","Majuli","Morigaon","Nagaon","Nalbari","Sivasagar","Sonitpur","South Salmara-Mankachar","Tinsukia","Udalguri","West Karbi Anglong"],
-    "Bihar": ["Araria","Arwal","Aurangabad","Banka","Begusarai","Bhagalpur","Bhojpur","Buxar","Darbhanga","East Champaran","Gaya","Gopalganj","Jamui","Jehanabad","Kaimur","Katihar","Khagaria","Kishanganj","Lakhisarai","Madhepura","Madhubani","Munger","Muzaffarpur","Nalanda","Nawada","Patna","Purnia","Rohtas","Saharsa","Samastipur","Saran","Sheikhpura","Sheohar","Sitamarhi","Siwan","Supaul","Vaishali","West Champaran"],
-    "Chhattisgarh": ["Balod","Baloda Bazar","Balrampur","Bastar","Bemetara","Bijapur","Bilaspur","Dantewada","Dhamtari","Durg","Gariaband","Janjgir-Champa","Jashpur","Kabirdham","Kanker","Kondagaon","Korba","Korea","Mahasamund","Mungeli","Narayanpur","Raigarh","Raipur","Rajnandgaon","Sukma","Surajpur","Surguja"],
-    "Goa": ["North Goa","South Goa"],
-    "Gujarat": ["Ahmedabad","Amreli","Anand","Aravalli","Banaskantha","Bharuch","Bhavnagar","Botad","Chhota Udaipur","Dahod","Dang","Devbhoomi Dwarka","Gandhinagar","Gir Somnath","Jamnagar","Junagadh","Kheda","Kutch","Mahisagar","Mehsana","Morbi","Narmada","Navsari","Panchmahal","Patan","Porbandar","Rajkot","Sabarkantha","Surat","Surendranagar","Tapi","Vadodara","Valsad"],
-    "Haryana": ["Ambala","Bhiwani","Charkhi Dadri","Faridabad","Fatehabad","Gurugram","Hisar","Jhajjar","Jind","Kaithal","Karnal","Kurukshetra","Mahendragarh","Nuh","Palwal","Panchkula","Panipat","Rewari","Rohtak","Sirsa","Sonipat","Yamunanagar"],
-    "Himachal Pradesh": ["Bilaspur","Chamba","Hamirpur","Kangra","Kinnaur","Kullu","Lahaul and Spiti","Mandi","Shimla","Sirmaur","Solan","Una"],
-    "Jharkhand": ["Bokaro","Chatra","Deoghar","Dhanbad","Dumka","East Singhbhum","Garhwa","Giridih","Godda","Gumla","Hazaribagh","Jamtara","Khunti","Koderma","Latehar","Lohardaga","Pakur","Palamu","Ramgarh","Ranchi","Sahibganj","Seraikela Kharsawan","Simdega","West Singhbhum"],
-    "Karnataka": ["Bagalkot","Ballari","Belagavi","Bengaluru Rural","Bengaluru Urban","Bidar","Chamarajanagar","Chikkaballapur","Chikkamagaluru","Chitradurga","Dakshina Kannada","Davanagere","Dharwad","Gadag","Hassan","Haveri","Kalaburagi","Kodagu","Kolar","Koppal","Mandya","Mysuru","Raichur","Ramanagara","Shivamogga","Tumakuru","Udupi","Uttara Kannada","Vijayapura","Yadgir"],
-    "Kerala": ["Alappuzha","Ernakulam","Idukki","Kannur","Kasaragod","Kollam","Kottayam","Kozhikode","Malappuram","Palakkad","Pathanamthitta","Thiruvananthapuram","Thrissur","Wayanad"],
-    "Madhya Pradesh": ["Agar Malwa","Alirajpur","Anuppur","Ashoknagar","Balaghat","Barwani","Betul","Bhind","Bhopal","Burhanpur","Chhatarpur","Chhindwara","Damoh","Datia","Dewas","Dhar","Dindori","Guna","Gwalior","Harda","Hoshangabad","Indore","Jabalpur","Jhabua","Katni","Khandwa","Khargone","Mandla","Mandsaur","Morena","Narsinghpur","Neemuch","Panna","Raisen","Rajgarh","Ratlam","Rewa","Sagar","Satna","Sehore","Seoni","Shahdol","Shajapur","Sheopur","Shivpuri","Sidhi","Singrauli","Tikamgarh","Ujjain","Umaria","Vidisha"],
-    "Maharashtra": ["Ahmednagar","Akola","Amravati","Aurangabad","Beed","Bhandara","Buldhana","Chandrapur","Dhule","Gadchiroli","Gondia","Hingoli","Jalgaon","Jalna","Kolhapur","Latur","Mumbai City","Mumbai Suburban","Nagpur","Nanded","Nandurbar","Nashik","Osmanabad","Palghar","Parbhani","Pune","Raigad","Ratnagiri","Sangli","Satara","Sindhudurg","Solapur","Thane","Wardha","Washim","Yavatmal"],
-    "Manipur": ["Bishnupur","Chandel","Churachandpur","Imphal East","Imphal West","Senapati","Tamenglong","Thoubal","Ukhrul"],
-    "Meghalaya": ["East Garo Hills","East Jaintia Hills","East Khasi Hills","North Garo Hills","Ri Bhoi","South Garo Hills","South West Garo Hills","South West Khasi Hills","West Garo Hills","West Jaintia Hills","West Khasi Hills"],
-    "Mizoram": ["Aizawl","Champhai","Kolasib","Lawngtlai","Lunglei","Mamit","Saiha","Serchhip"],
-    "Nagaland": ["Dimapur","Kiphire","Kohima","Longleng","Mokokchung","Mon","Peren","Phek","Tuensang","Wokha","Zunheboto"],
-    "Odisha": ["Angul","Balangir","Balasore","Bargarh","Bhadrak","Boudh","Cuttack","Deogarh","Dhenkanal","Gajapati","Ganjam","Jagatsinghpur","Jajpur","Jharsuguda","Kalahandi","Kandhamal","Kendrapara","Kendujhar","Khordha","Koraput","Malkangiri","Mayurbhanj","Nabarangpur","Nayagarh","Nuapada","Puri","Rayagada","Sambalpur","Sonepur","Sundargarh"],
-    "Punjab": ["Amritsar","Barnala","Bathinda","Faridkot","Fatehgarh Sahib","Fazilka","Ferozepur","Gurdaspur","Hoshiarpur","Jalandhar","Kapurthala","Ludhiana","Mansa","Moga","Muktsar","Nawanshahr","Pathankot","Patiala","Rupnagar","SAS Nagar","Sangrur","Tarn Taran"],
-    "Rajasthan": ["Ajmer","Alwar","Banswara","Baran","Barmer","Bharatpur","Bhilwara","Bikaner","Bundi","Chittorgarh","Churu","Dausa","Dholpur","Dungarpur","Hanumangarh","Jaipur","Jaisalmer","Jalore","Jhalawar","Jhunjhunu","Jodhpur","Karauli","Kota","Nagaur","Pali","Pratapgarh","Rajsamand","Sawai Madhopur","Sikar","Sirohi","Sri Ganganagar","Tonk","Udaipur"],
-    "Sikkim": ["East Sikkim","North Sikkim","South Sikkim","West Sikkim"],
-    "Tamil Nadu": ["Ariyalur","Chennai","Coimbatore","Cuddalore","Dharmapuri","Dindigul","Erode","Kallakurichi","Kanchipuram","Kanyakumari","Karur","Krishnagiri","Madurai","Nagapattinam","Namakkal","Nilgiris","Perambalur","Pudukkottai","Ramanathapuram","Ranipet","Salem","Sivaganga","Tenkasi","Thanjavur","Theni","Thoothukudi","Tiruchirappalli","Tirunelveli","Tirupathur","Tiruppur","Tiruvallur","Tiruvannamalai","Tiruvarur","Vellore","Viluppuram","Virudhunagar"],
-    "Telangana": ["Adilabad","Bhadradri Kothagudem","Hyderabad","Jagtial","Jangaon","Jayashankar Bhupalpally","Jogulamba Gadwal","Kamareddy","Karimnagar","Khammam","Kumuram Bheem","Mahabubabad","Mahabubnagar","Mancherial","Medak","Medchal-Malkajgiri","Mulugu","Nagarkurnool","Nalgonda","Narayanpet","Nirmal","Nizamabad","Peddapalli","Rajanna Sircilla","Rangareddy","Sangareddy","Siddipet","Suryapet","Vikarabad","Wanaparthy","Warangal Rural","Warangal Urban","Yadadri Bhuvanagiri"],
-    "Tripura": ["Dhalai","Gomati","Khowai","North Tripura","Sepahijala","South Tripura","Unakoti","West Tripura"],
-    "Uttar Pradesh": ["Agra","Aligarh","Allahabad","Ambedkar Nagar","Amethi","Amroha","Auraiya","Ayodhya","Azamgarh","Baghpat","Bahraich","Ballia","Balrampur","Banda","Barabanki","Bareilly","Basti","Bijnor","Budaun","Bulandshahr","Chandauli","Chitrakoot","Deoria","Etah","Etawah","Farrukhabad","Fatehpur","Firozabad","Gautam Buddha Nagar","Ghaziabad","Ghazipur","Gonda","Gorakhpur","Hamirpur","Hapur","Hardoi","Hathras","Jalaun","Jaunpur","Jhansi","Kannauj","Kanpur Dehat","Kanpur Nagar","Kasganj","Kaushambi","Kushinagar","Lakhimpur Kheri","Lalitpur","Lucknow","Maharajganj","Mahoba","Mainpuri","Mathura","Mau","Meerut","Mirzapur","Moradabad","Muzaffarnagar","Pilibhit","Pratapgarh","Prayagraj","Rae Bareli","Rampur","Saharanpur","Sambhal","Sant Kabir Nagar","Shahjahanpur","Shamli","Shravasti","Siddharthnagar","Sitapur","Sonbhadra","Sultanpur","Unnao","Varanasi"],
-    "Uttarakhand": ["Almora","Bageshwar","Chamoli","Champawat","Dehradun","Haridwar","Nainital","Pauri Garhwal","Pithoragarh","Rudraprayag","Tehri Garhwal","Udham Singh Nagar","Uttarkashi"],
-    "West Bengal": ["Alipurduar","Bankura","Birbhum","Cooch Behar","Dakshin Dinajpur","Darjeeling","Hooghly","Howrah","Jalpaiguri","Jhargram","Kalimpong","Kolkata","Malda","Murshidabad","Nadia","North 24 Parganas","Paschim Bardhaman","Paschim Medinipur","Purba Bardhaman","Purba Medinipur","Purulia","South 24 Parganas","Uttar Dinajpur"],
-    "Delhi": ["Central Delhi","East Delhi","New Delhi","North Delhi","North East Delhi","North West Delhi","Shahdara","South Delhi","South East Delhi","South West Delhi","West Delhi"],
-    "Jammu & Kashmir": ["Anantnag","Bandipora","Baramulla","Budgam","Doda","Ganderbal","Jammu","Kathua","Kishtwar","Kulgam","Kupwara","Poonch","Pulwama","Rajouri","Ramban","Reasi","Samba","Shopian","Srinagar","Udhampur"],
-    "Ladakh": ["Kargil","Leh"],
-    "Puducherry": ["Karaikal","Mahe","Puducherry","Yanam"],
-}
+MAX_DISTANCE_KM = 200   # same as SMS
 
 # Fallback dummy markets (used only when model can't find results)
 DUMMY_MARKETS = [
@@ -126,118 +55,6 @@ DUMMY_MARKETS = [
     ("Kothi",      "Punjab",      "Amritsar"),
     ("Bowenpally", "Telangana",   "Hyderabad"),
 ]
-
-# =============================================================================
-# DISTRICT NORMALISATION + STATE CROPS  — identical to sms_handler.py
-# =============================================================================
-DISTRICT_ALIASES = {
-    "ananthapur": "Anantapur", "karim nagar": "Karimnagar",
-    "k.v.rangareddy": "Rangareddi", "visakhapatnam": "Vishakhapatnam",
-    "dhubri": "Dhuburi", "mammit": "Mamit",
-    "east champaran": "Purba Champaran", "west champaran": "Pashchim Champaran",
-    "kaimur (bhabua)": "Bhabua", "palamau": "Palamu", "arwal": "Jehanabad",
-    "bijapur(cgh)": "Bijapur",
-    "central delhi": "Delhi", "east delhi": "Delhi", "new delhi": "Delhi",
-    "north delhi": "Delhi", "north west delhi": "Delhi", "south delhi": "Delhi",
-    "south west delhi": "Delhi", "west delhi": "Delhi",
-    "ahmedabad": "Ahmadabad", "ahmed nagar": "Ahmednagar",
-    "banaskantha": "Banas Kantha", "gandhi nagar": "Gandhinagar",
-    "sabarkantha": "Sabar Kantha", "surendra nagar": "Surendranagar",
-    "bilaspur (hp)": "Bilaspur", "hamirpur(hp)": "Hamirpur",
-    "lahul & spiti": "Lahul And Spiti",
-    "ananthnag": "Anantnag (Kashmir South)", "baramulla": "Baramula (Kashmir North)",
-    "poonch": "Punch", "reasi": "Rajauri",
-    "giridh": "Giridih", "khunti": "Ranchi", "ramgarh": "Ranchi",
-    "seraikela-kharsawan": "Saraikela Kharsawan",
-    "east singhbhum": "Purba Singhbhum", "west singhbhum": "Pashchim Singhbhum",
-    "bangalore": "Bangalore Urban", "chickmagalur": "Chikmagalur",
-    "chikkaballapur": "Chikmagalur", "dakshina kannada": "Dakshin Kannad",
-    "davangere": "Davanagere", "ramanagar": "Bangalore Rural",
-    "krishnagiri": "Dharmapuri", "uttara kannada": "Uttar Kannand",
-    "yadgir": "Gulbarga", "bijapur(kar)": "Bijapur",
-    "kasargod": "Kasaragod", "pathanamthitta": "Pattanamtitta",
-    "alirajpur": "Jhabua", "ashok nagar": "Ashoknagar", "budaun": "Badaun",
-    "khargone": "East Nimar", "rajnandgaon": "Raj Nandgaon", "singrauli": "Sidhi",
-    "aurangabad(bh)": "Aurangabad", "beed": "Bid", "buldhana": "Buldana",
-    "gadchiroli": "Garhchiroli", "gondia": "Gondiya",
-    "mumbai": "Greater Bombay", "raigarh(mh)": "Raigarh",
-    "imphal east": "East Imphal", "imphal west": "West Imphal",
-    "ri bhoi": "Ri-Bhoi",
-    "kiphire": "Tuensang", "longleng": "Mokokchung", "peren": "Kohima",
-    "balangir": "Bolangir", "baleswar": "Baleshwar", "bargarh": "Baragarh",
-    "debagarh": "Deogarh", "jagatsinghapur": "Jagatsinghpur",
-    "jajapur": "Jajpur", "kendujhar": "Keonjhar", "khorda": "Khordha",
-    "nabarangapur": "Nabarangpur", "sonapur": "Sonepur", "sundergarh": "Sundargarh",
-    "pondicherry": "Puducherry",
-    "nawanshahr": "Nawan Shehar", "ropar": "Rupnagar",
-    "chittorgarh": "Chittaurgarh", "dholpur": "Dhaulpur", "jhujhunu": "Jhunjhunun",
-    "tiruchirappalli": "Tiruchchirappalli", "tiruchirapalli": "Tiruchchirappalli",
-    "tiruchi": "Tiruchchirappalli", "trichy": "Tiruchchirappalli",
-    "tirunelveli": "Tirunelveli Kattabo", "tiruvallur": "Thiruvallur",
-    "tiruvarur": "Thiruvarur", "kancheepuram": "Kancheepuram",
-    "kanchipuram": "Kancheepuram", "the nilgiris": "Nilgiris",
-    "tuticorin": "Thoothukudi", "kanyakumari": "Kanniyakumari",
-    "chengalpattu": "Kancheepuram", "ranipet": "Vellore", "tiruppur": "Tirupur",
-    "barabanki": "Bara Banki", "bagpat": "Baghpat", "raebareli": "Rae Bareli",
-    "sant ravidas nagar": "Sant Ravi Das Nagar", "siddharthnagar": "Siddharth Nagar",
-    "shrawasti": "Shravasti", "kanpur nagar": "Kanpur", "kheri": "Lakhimpur Kheri",
-    "dehradun": "Dehra Dun", "nainital": "Naini Tal", "rudraprayag": "Rudra Prayag",
-    "bardhaman": "Barddhaman", "howrah": "Haora", "malda": "Maldah",
-    "north dinajpur": "Uttar Dinajpur", "south dinajpur": "Dakshin Dinajpur",
-    "sonipat": "Sonepat",
-    "dadra & nagar haveli": "Dadra And Nagar Haveli",
-    "lakshadweep": "Kavaratti", "east sikkim": "East",
-    "dibang valley": "Upper Dibang Valley", "bilaspur(cgh)": "Bilaspur",
-}
-
-
-def normalize_district(raw: str) -> str:
-    """
-    Corrects known spelling mismatches for centroid lookup.
-    Returns the corrected district name, or raw.title() if no alias.
-    Never returns None — all districts are accepted.
-    Identical logic to sms_handler.py.
-    """
-    key = raw.strip().lower()
-    if key in DISTRICT_ALIASES:
-        return DISTRICT_ALIASES[key]
-    return raw.strip().title()
-
-
-# Per-state crop availability (same as sms_handler.py)
-STATE_CROPS = {
-    "Andhra Pradesh":    ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Assam":             ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Bihar":             ["Onion", "Potato", "Tomato", "Wheat"],
-    "Chandigarh":        ["Onion", "Potato", "Tomato"],
-    "Chhattisgarh":      ["Onion", "Potato", "Tomato", "Wheat"],
-    "Delhi":             ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Goa":               ["Potato"],
-    "Gujarat":           ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Haryana":           ["Onion", "Potato", "Tomato", "Wheat"],
-    "Himachal Pradesh":  ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Jammu And Kashmir": ["Onion", "Potato", "Tomato"],
-    "Karnataka":         ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Kerala":            ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Madhya Pradesh":    ["Onion", "Potato", "Tomato", "Wheat"],
-    "Maharashtra":       ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Manipur":           ["Onion", "Potato", "Rice"],
-    "Meghalaya":         ["Onion", "Potato", "Tomato"],
-    "Nagaland":          ["Onion", "Potato", "Tomato"],
-    "Odisha":            ["Onion", "Potato", "Rice", "Tomato"],
-    "Punjab":            ["Onion", "Potato", "Tomato", "Wheat"],
-    "Rajasthan":         ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Tamil Nadu":        ["Onion", "Potato"],
-    "Tripura":           ["Onion"],
-    "Uttar Pradesh":     ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-    "Uttarakhand":       ["Onion", "Potato", "Rice", "Wheat"],
-    "West Bengal":       ["Onion", "Potato", "Rice", "Tomato", "Wheat"],
-}
-
-
-def get_crops_for_state(state: str) -> list:
-    """Returns available crops for a state. Falls back to all CROPS."""
-    return STATE_CROPS.get(state.strip().title(), CROPS)
 
 # =============================================================================
 # CSS
@@ -504,19 +321,21 @@ def make_dummy_df(commodity="Onion", quantity_kg=500):
 # =============================================================================
 # MODEL CALL
 # =============================================================================
-def get_recommendations(commodity, quantity_kg, district, state, month_num, year):
-    """Call real model; fall back to dummy on any error."""
+def get_recommendations(commodity, quantity_kg, loc, month_num, year):
+    """Call real model; fall back to dummy on any error. loc = geo.lookup_pincode()."""
+    district, state = loc["district"], loc["state"]
     try:
         from recommender import recommend
         results = recommend(
             commodity        = commodity,
             quantity_kg      = quantity_kg,
-            farmer_district  = district,
-            farmer_state     = state,
+            farmer_lat       = loc["lat"],
+            farmer_lon       = loc["lon"],
             target_month     = month_num,
             target_year      = year,
-            max_distance_km  = 200,         # hardcoded 200, same as SMS
+            max_distance_km  = MAX_DISTANCE_KM,
             top_n            = 3,            # same as SMS
+            farmer_district  = district,
         )
         if results and len(results) > 0:
             return results, False   # (data, is_dummy)
@@ -826,7 +645,14 @@ def render_form_section():
             key="pincode"
         )
     with c3:
-        commodity = st.selectbox("Crop *", CROPS, index=1, key="crop")
+        # Once a known pincode is typed, only offer crops traded at a mandi in range
+        crop_options = CROPS
+        pin_loc = geo.lookup_pincode(pincode.strip()) if pincode else {"valid": False}
+        if pin_loc["valid"]:
+            crop_options = geo.available_crops(pin_loc["lat"], pin_loc["lon"],
+                                               MAX_DISTANCE_KM, order=CROPS) or CROPS
+        default = crop_options.index("Onion") if "Onion" in crop_options else 0
+        commodity = st.selectbox("Crop *", crop_options, index=default, key="crop")
 
     # Row 2 — same inputs as SMS: qty bucket + month + submit
     #   QTY_MAP {1:250, 2:750, 3:2500, 4:6000}  (identical to sms_handler.py)
@@ -888,9 +714,8 @@ def render_results(inputs):
         st.warning("⚠️ Pincode must be exactly 6 digits. Example: 641001")
         return
 
-    # ── Resolve pincode → raw district + state ───────────────────
-    from recommender import lookup_pincode
-    loc = lookup_pincode(pincode)
+    # ── Resolve pincode → canonical district + state + coordinates ──
+    loc = geo.lookup_pincode(pincode)
     if not loc["valid"]:
         st.warning(
             f"⚠️ Pincode **{pincode}** was not found in our database. "
@@ -898,12 +723,7 @@ def render_results(inputs):
         )
         return
 
-    raw_district = loc["district"]   # e.g. 'COIMBATORE' / 'Nashik'
-    state        = loc["state"]      # e.g. 'Tamil Nadu'
-
-    # ── Normalise district name (same as sms_handler.py) ──────────
-    #   Fixes CSV spelling mismatches before passing to recommend()
-    district = normalize_district(raw_district)
+    district, state = loc["district"], loc["state"]
 
     # Show resolved location
     st.info(f"📍 **{district}, {state}** (pincode {pincode})")
@@ -911,8 +731,7 @@ def render_results(inputs):
     # ── Loading spinner ────────────────────────────────────────────
     with st.spinner(f"🔍 Evaluating mandis for {inputs['commodity']} near {district}…"):
         records, is_dummy = get_recommendations(
-            inputs["commodity"], inputs["quantity_kg"],
-            district, state,
+            inputs["commodity"], inputs["quantity_kg"], loc,
             inputs["month_num"], inputs["year"],
         )
 
@@ -920,7 +739,7 @@ def render_results(inputs):
         st.markdown(f"""
         <div style="background:{BG_OFFWHITE};padding:40px 80px;">
             <div style="background:white;border-radius:4px;padding:32px;text-align:center;color:{TEXT_MUTED};">
-                <b>No markets found</b> within 200 km of <b>{district}, {state}</b>.<br><br>
+                <b>No markets found</b> within {MAX_DISTANCE_KM} km of <b>{district}, {state}</b>.<br><br>
                 Try a different crop or month that is traded near your region.
             </div>
         </div>
@@ -947,7 +766,7 @@ def render_results(inputs):
         <div style="font-size:0.85rem;color:{TEXT_MUTED};margin-top:4px;">
             {inputs['quantity_kg']} kg &nbsp;·&nbsp; {district}, {state}
             &nbsp;·&nbsp; {inputs['month_name']} {inputs['year']}
-            &nbsp;·&nbsp; Within 200 km
+            &nbsp;·&nbsp; Within {MAX_DISTANCE_KM} km
             &nbsp;·&nbsp; {len(records)} markets found
         </div>
     </div>
@@ -1033,7 +852,7 @@ def render_results(inputs):
 
     # ── Ranked table ───────────────────────────────────────────────
     st.markdown("<div class='sec-lbl'>Full Market Rankings</div>", unsafe_allow_html=True)
-    st.dataframe(style_table(records), use_container_width=True, hide_index=True)
+    st.dataframe(style_table(records), width="stretch", hide_index=True)
 
     # ── Recommendation summary (SMS-style ranked list) ─────────────
     qty_kg = inputs["quantity_kg"]
