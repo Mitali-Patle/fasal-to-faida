@@ -12,6 +12,8 @@ sessions.json
 .env
 *.env
 secrets.toml
+.streamlit/secrets.toml
+!.streamlit/secrets.toml.example
 
 # Test / scratch files
 test_*.py
