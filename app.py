@@ -7,6 +7,7 @@
 # =============================================================================
 
 import io
+import logging
 import random
 import numpy as np
 import pandas as pd
@@ -15,6 +16,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+
+log = logging.getLogger("fasal.web")
 
 st.set_page_config(
     page_title="Fasal-to-Faida | Market Intelligence",
@@ -519,8 +522,9 @@ def get_recommendations(commodity, quantity_kg, district, state, month_num, year
             return results, False   # (data, is_dummy)
         # Model ran but found 0 markets — not a crash, just no results
         return [], False
-    except Exception as e:
-        st.session_state["model_error"] = str(e)
+    except Exception:
+        log.exception("recommend() failed (commodity=%s district=%s state=%s month=%s)",
+                      commodity, district, state, month_num)
         return make_dummy_df(commodity, quantity_kg), True
 
 
@@ -928,11 +932,9 @@ def render_results(inputs):
 
     # ── Dummy data notice ──────────────────────────────────────────
     if is_dummy:
-        err_detail = st.session_state.get("model_error", "unknown error")
         st.error(
-            f"⚠️ Model failed — showing illustrative data only.\n\n"
-            f"**Error:** `{err_detail}`\n\n"
-            f"District passed to model: `{district}` · State: `{state}`"
+            "⚠️ We couldn't calculate prices right now — the numbers below are "
+            "illustrative only, not real predictions. Please try again later."
         )
 
     # ── Results header ─────────────────────────────────────────────
@@ -1098,7 +1100,8 @@ def render_results(inputs):
             </div>
             """, unsafe_allow_html=True)
         else:
-            st.warning(f"⚠️ AI summary unavailable: {err}")
+            log.error("AI summary failed: %s", err)
+            st.warning("⚠️ AI summary is unavailable right now.")
     else:
         st.info("💬 AI Market Advisory unavailable — no API key found in secrets.toml.")
 

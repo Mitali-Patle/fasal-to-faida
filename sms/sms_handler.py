@@ -6,6 +6,7 @@ from flask import Flask, request, abort
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.request_validator import RequestValidator
 import json
+import logging
 import os
 import re
 import sys
@@ -20,6 +21,60 @@ from recommender import recommend
 from sms.strings import LANGS, LANG_MENU, STRINGS, t, crop_name
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("fasal.sms")
+
+# ── Twilio request validation ────────────────────────────────────────────────
+# Fails CLOSED: without TWILIO_AUTH_TOKEN every POST /sms is rejected, unless
+# ALLOW_UNSIGNED_SMS=1 is set explicitly (local development only).
+#
+# TWILIO_WEBHOOK_URL must be the exact URL configured in the Twilio console,
+# e.g. https://your-app.up.railway.app/sms — Twilio signs that string, and
+# rebuilding it from proxy headers is what broke validation before.
+_TWILIO_AUTH_TOKEN  = os.environ.get("TWILIO_AUTH_TOKEN", "")
+_TWILIO_WEBHOOK_URL = os.environ.get("TWILIO_WEBHOOK_URL", "").strip()
+_ALLOW_UNSIGNED     = os.environ.get("ALLOW_UNSIGNED_SMS") == "1"
+_twilio_validator   = RequestValidator(_TWILIO_AUTH_TOKEN) if _TWILIO_AUTH_TOKEN else None
+
+if _twilio_validator is None and not _ALLOW_UNSIGNED:
+    log.warning("TWILIO_AUTH_TOKEN not set: all /sms requests will be rejected. "
+                "Set ALLOW_UNSIGNED_SMS=1 for local development.")
+
+
+def _signed_url() -> str:
+    """The URL Twilio signed: explicit config, else rebuilt from proxy headers."""
+    if _TWILIO_WEBHOOK_URL:
+        url = _TWILIO_WEBHOOK_URL
+        if request.query_string:
+            url += "?" + request.query_string.decode()
+        return url
+    scheme = request.headers.get("X-Forwarded-Proto", request.scheme)
+    host   = request.headers.get("X-Forwarded-Host", request.host)
+    return f"{scheme}://{host}{request.full_path.rstrip('?')}"
+
+
+@app.before_request
+def validate_twilio_signature():
+    if request.path != "/sms" or request.method != "POST":
+        return
+    if _twilio_validator is None:
+        if _ALLOW_UNSIGNED:
+            return
+        abort(403)
+    sig = request.headers.get("X-Twilio-Signature", "")
+    if not _twilio_validator.validate(_signed_url(), request.form.to_dict(), sig):
+        log.warning("Rejected /sms request with invalid Twilio signature")
+        abort(403)
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc):
+    """Log the real error server-side; the user only gets a generic reply."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(exc, HTTPException):
+        return exc
+    log.exception("Unhandled error in SMS webhook")
+    return send(t("error", "EN"))
 
 # ── File paths ───────────────────────────────────────────────────────────────
 USERS_FILE    = "registered_users.json"
@@ -583,12 +638,10 @@ def sms_reply():
                              profit=f"{r['net_profit']:,.0f}")
             msg += "\nMENU"
 
-        except Exception as e:
-            msg = (
-                f"Prediction failed. Try again.\n"
-                f"Send MENU to restart.\n"
-                f"Error: {e}"
-            )
+        except Exception:
+            log.exception("recommend() failed (crop=%s month=%s district=%s state=%s)",
+                          crop, month, district, state)
+            msg = t("error", lang)
 
         # Clear session after result
         sessions.pop(phone, None)
@@ -602,4 +655,4 @@ def sms_reply():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1", port=5000)
